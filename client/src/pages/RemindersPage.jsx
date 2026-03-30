@@ -81,6 +81,7 @@ const emptyForm = {
   recurringYearly: false,
   groups: [],
   contacts: [],
+  subjectContact: '',
 };
 
 export default function RemindersPage() {
@@ -107,6 +108,10 @@ export default function RemindersPage() {
 
   // Send test
   const [sendingTest, setSendingTest] = useState(null);
+
+  // Send result modal
+  const [showSendResult, setShowSendResult] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -163,6 +168,11 @@ export default function RemindersPage() {
         (reminder.contacts || []).map((c) =>
           typeof c === 'string' ? c : c._id || c.id
         ) || [],
+      subjectContact: reminder.subjectContact
+        ? typeof reminder.subjectContact === 'string'
+          ? reminder.subjectContact
+          : reminder.subjectContact._id || reminder.subjectContact.id || ''
+        : '',
     });
     setFormErrors({});
     setShowModal(true);
@@ -289,43 +299,17 @@ export default function RemindersPage() {
     setSendingTest(rid);
     try {
       const res = await mockSendReminder(rid);
-      const recipients = res?.data?.recipients || res?.recipients || [];
-      if (recipients.length > 0) {
-        toast.success(
-          `Test sent! Would notify: ${recipients
-            .map((r) => r.firstName || r.name || r)
-            .join(', ')}`
-        );
-      } else {
-        toast.success(
-          'Test sent! No recipients configured for this reminder.'
-        );
-      }
+      const data = res?.data || res;
+      setSendResult({
+        reminder: data.reminder || { title: reminder.title, type: reminder.type },
+        messages: data.messages || [],
+        excluded: data.excluded || null,
+        totalRecipients: data.totalRecipients || 0,
+        sentAt: data.sentAt || new Date().toISOString(),
+      });
+      setShowSendResult(true);
     } catch (err) {
-      // Fallback: build the recipients list from the reminder data
-      const recipientNames = [];
-      (reminder.contacts || []).forEach((c) => {
-        if (typeof c === 'object') {
-          recipientNames.push(`${c.firstName || ''} ${c.lastName || ''}`.trim());
-        } else {
-          const found = contacts.find((ct) => (ct._id || ct.id) === c);
-          if (found) recipientNames.push(`${found.firstName || ''} ${found.lastName || ''}`.trim());
-        }
-      });
-      (reminder.groups || []).forEach((g) => {
-        if (typeof g === 'object') {
-          recipientNames.push(`Group: ${g.name}`);
-        } else {
-          const found = groups.find((grp) => (grp._id || grp.id) === g);
-          if (found) recipientNames.push(`Group: ${found.name}`);
-        }
-      });
-
-      if (recipientNames.length > 0) {
-        toast.success(`Test sent! Would notify: ${recipientNames.join(', ')}`);
-      } else {
-        toast.success('Test sent! No recipients configured.');
-      }
+      toast.error('Failed to simulate send');
     } finally {
       setSendingTest(null);
     }
@@ -693,6 +677,35 @@ export default function RemindersPage() {
             <span className="text-sm text-slate-300">Recurring yearly</span>
           </label>
 
+          {/* Subject Contact — person this reminder is about (excluded from notifications) */}
+          {contacts.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Who is this about?
+              </label>
+              <select
+                name="subjectContact"
+                value={formData.subjectContact}
+                onChange={handleFormChange}
+                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="">None (notify everyone)</option>
+                {contacts.map((contact) => {
+                  const cid = contact._id || contact.id;
+                  return (
+                    <option key={cid} value={cid}>
+                      {contact.firstName} {contact.lastName}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="text-slate-500 text-xs mt-1">
+                This person will NOT receive the notification (e.g., don't tell
+                Dad about his own birthday surprise)
+              </p>
+            </div>
+          )}
+
           {/* Groups multi-select */}
           {groups.length > 0 && (
             <div>
@@ -787,6 +800,94 @@ export default function RemindersPage() {
         loading={deleting}
         variant="danger"
       />
+
+      {/* SMS Send Result Modal */}
+      <Modal
+        isOpen={showSendResult}
+        onClose={() => setShowSendResult(false)}
+        title="SMS Preview"
+        size="lg"
+      >
+        {sendResult && (
+          <div className="space-y-4">
+            {/* Header summary */}
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <Send className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-emerald-300">
+                  {sendResult.totalRecipients} message{sendResult.totalRecipients !== 1 ? 's' : ''} would be sent
+                </p>
+                <p className="text-xs text-slate-400">
+                  Simulated at {new Date(sendResult.sentAt).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            {/* Excluded person notice */}
+            {sendResult.excluded && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <span className="text-amber-400 text-sm">⚠️</span>
+                <p className="text-sm text-amber-300">
+                  <strong>Excluded:</strong> {sendResult.excluded}
+                </p>
+              </div>
+            )}
+
+            {/* Message previews — phone bubble style */}
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {sendResult.messages.length === 0 ? (
+                <p className="text-center text-slate-500 py-6 text-sm">
+                  No recipients configured for this reminder.
+                </p>
+              ) : (
+                sendResult.messages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-slate-700 overflow-hidden animate-slide-in"
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
+                    {/* Recipient header */}
+                    <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-800/80 border-b border-slate-700">
+                      <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300">
+                        {(msg.contactName || '??').split(' ').map(n => n[0]).join('').toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-white truncate">{msg.contactName}</p>
+                        <p className="text-xs text-slate-500">{msg.to}</p>
+                      </div>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">
+                        {msg.status === 'simulated' ? '✓ Simulated' : msg.status}
+                      </span>
+                    </div>
+
+                    {/* SMS bubble */}
+                    <div className="p-4 bg-slate-900/50">
+                      <div className="inline-block max-w-[85%] px-4 py-2.5 rounded-2xl rounded-bl-md bg-indigo-600 text-white text-sm leading-relaxed">
+                        {msg.message}
+                      </div>
+                      <p className="text-[10px] text-slate-600 mt-1.5 ml-1">
+                        {new Date(sendResult.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · SMS
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+              <p className="text-xs text-slate-500">
+                ⚡ This is a simulation. No real SMS was sent.
+              </p>
+              <Button variant="secondary" onClick={() => setShowSendResult(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

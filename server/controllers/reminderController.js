@@ -12,6 +12,7 @@ const getReminders = async (req, res) => {
     const reminders = await Reminder.find({ user: req.user._id })
       .populate('groups', 'name color icon')
       .populate('contacts', 'firstName lastName phone email')
+      .populate('subjectContact', 'firstName lastName phone email')
       .sort({ date: 1 });
 
     res.json({
@@ -40,7 +41,8 @@ const getReminder = async (req, res) => {
       user: req.user._id,
     })
       .populate('groups', 'name color icon')
-      .populate('contacts', 'firstName lastName phone email');
+      .populate('contacts', 'firstName lastName phone email')
+      .populate('subjectContact', 'firstName lastName phone email');
 
     if (!reminder) {
       return res.status(404).json({
@@ -86,6 +88,7 @@ const createReminder = async (req, res) => {
     const populated = await reminder.populate([
       { path: 'groups', select: 'name color icon' },
       { path: 'contacts', select: 'firstName lastName phone email' },
+      { path: 'subjectContact', select: 'firstName lastName phone email' },
     ]);
 
     res.status(201).json({
@@ -126,7 +129,8 @@ const updateReminder = async (req, res) => {
       { new: true, runValidators: true }
     )
       .populate('groups', 'name color icon')
-      .populate('contacts', 'firstName lastName phone email');
+      .populate('contacts', 'firstName lastName phone email')
+      .populate('subjectContact', 'firstName lastName phone email');
 
     res.json({
       success: true,
@@ -285,6 +289,7 @@ const toggleActive = async (req, res) => {
     const populated = await reminder.populate([
       { path: 'groups', select: 'name color icon' },
       { path: 'contacts', select: 'firstName lastName phone email' },
+      { path: 'subjectContact', select: 'firstName lastName phone email' },
     ]);
 
     res.json({
@@ -312,7 +317,8 @@ const mockSend = async (req, res) => {
       user: req.user._id,
     })
       .populate('groups', 'name color icon')
-      .populate('contacts', 'firstName lastName phone email');
+      .populate('contacts', 'firstName lastName phone email')
+      .populate('subjectContact', 'firstName lastName phone email');
 
     if (!reminder) {
       return res.status(404).json({
@@ -344,7 +350,14 @@ const mockSend = async (req, res) => {
       });
     }
 
+    // Exclude the subject contact (e.g., don't send someone their own birthday reminder)
+    const subjectId = reminder.subjectContact?._id?.toString() || reminder.subjectContact?.toString();
+    if (subjectId) {
+      recipientSet.delete(subjectId);
+    }
+
     const recipients = Array.from(recipientSet.values());
+    const excluded = subjectId ? await Contact.findById(subjectId).select('firstName lastName') : null;
 
     // Simulate sending: build the list of messages that would be sent
     const messages = recipients.map((contact) => ({
@@ -371,6 +384,9 @@ const mockSend = async (req, res) => {
         },
         totalRecipients: recipients.length,
         messages,
+        excluded: excluded
+          ? `${excluded.firstName} ${excluded.lastName} (subject of reminder — not notified)`
+          : null,
         sentAt: reminder.lastSent,
         note: 'This is a simulated send. No actual SMS messages were sent.',
       },

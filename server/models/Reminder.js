@@ -45,6 +45,11 @@ const reminderSchema = new mongoose.Schema({
       ref: 'Contact',
     },
   ],
+  subjectContact: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Contact',
+    default: null,
+  },
   isActive: {
     type: Boolean,
     default: true,

@@ -23,6 +23,7 @@ import {
   updateGroup,
   deleteGroup,
   getContacts,
+  updateContact,
 } from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -103,12 +104,15 @@ export default function GroupsPage() {
     }
   }
 
-  // Get members for a group
+  // Get members for a group — contacts store which groups they belong to
   const getGroupMembers = (group) => {
-    const memberIds = (group.members || group.contacts || []).map((m) =>
-      typeof m === 'string' ? m : m._id || m.id
+    const gid = group._id || group.id;
+    return contacts.filter((c) =>
+      (c.groups || []).some((g) => {
+        const groupId = typeof g === 'string' ? g : g._id || g.id;
+        return groupId === gid;
+      })
     );
-    return contacts.filter((c) => memberIds.includes(c._id || c.id));
   };
 
   // ---------- Form helpers ----------
@@ -126,9 +130,6 @@ export default function GroupsPage() {
       description: group.description || '',
       color: group.color || PRESET_COLORS[0],
       icon: group.icon || 'users',
-      members: (group.members || group.contacts || []).map((m) =>
-        typeof m === 'string' ? m : m._id || m.id
-      ),
     });
     setFormErrors({});
     setShowModal(true);
@@ -211,11 +212,17 @@ export default function GroupsPage() {
   // ---------- Manage Members ----------
   const openManageMembers = (group) => {
     setManagingGroup(group);
-    setSelectedMembers(
-      (group.members || group.contacts || []).map((m) =>
-        typeof m === 'string' ? m : m._id || m.id
+    const gid = group._id || group.id;
+    // Pre-select contacts that already belong to this group
+    const currentMembers = contacts
+      .filter((c) =>
+        (c.groups || []).some((g) => {
+          const groupId = typeof g === 'string' ? g : g._id || g.id;
+          return groupId === gid;
+        })
       )
-    );
+      .map((c) => c._id || c.id);
+    setSelectedMembers(currentMembers);
     setShowMembersModal(true);
   };
 
@@ -230,19 +237,39 @@ export default function GroupsPage() {
   const handleSaveMembers = async () => {
     if (!managingGroup) return;
     setSavingMembers(true);
+    const gid = managingGroup._id || managingGroup.id;
     try {
-      const res = await updateGroup(managingGroup._id || managingGroup.id, {
-        ...managingGroup,
-        members: selectedMembers,
-        contacts: selectedMembers,
+      // For each contact, add or remove this group from their groups array
+      const updates = contacts.map(async (contact) => {
+        const cid = contact._id || contact.id;
+        const currentGroupIds = (contact.groups || []).map((g) =>
+          typeof g === 'string' ? g : g._id || g.id
+        );
+        const isCurrentMember = currentGroupIds.includes(gid);
+        const shouldBeMember = selectedMembers.includes(cid);
+
+        if (isCurrentMember && !shouldBeMember) {
+          // Remove group from contact
+          const newGroups = currentGroupIds.filter((id) => id !== gid);
+          return updateContact(cid, { groups: newGroups });
+        } else if (!isCurrentMember && shouldBeMember) {
+          // Add group to contact
+          const newGroups = [...currentGroupIds, gid];
+          return updateContact(cid, { groups: newGroups });
+        }
+        return null;
       });
-      setGroups((prev) =>
-        prev.map((g) =>
-          (g._id || g.id) === (managingGroup._id || managingGroup.id)
-            ? res.data || res
-            : g
-        )
-      );
+
+      await Promise.all(updates);
+
+      // Refresh all data to get updated counts
+      const [groupsRes, contactsRes] = await Promise.all([
+        getGroups(),
+        getContacts(),
+      ]);
+      setGroups(groupsRes.data || groupsRes);
+      setContacts(contactsRes.data || contactsRes);
+
       toast.success('Members updated');
       setShowMembersModal(false);
     } catch (err) {
