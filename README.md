@@ -85,3 +85,14 @@ free tier.
 3. Start command: `npm start --prefix server`
 4. Env vars: `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET`.
 5. Deploy, then open the service URL in a browser.
+
+**Seeding demo data on a deployed instance:** `server/seed.js` talks to the API over
+HTTP, so point it at the deployed URL instead of localhost by setting `API_URL`. Run
+this from your own machine (with `server`'s dependencies installed):
+
+```bash
+cd server
+API_URL=https://<your-render-app>.onrender.com/api npm run seed
+```
+
+Login with `demo@remindr.app` / `demo123456` afterward.

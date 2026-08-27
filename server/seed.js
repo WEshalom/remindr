@@ -8,7 +8,7 @@ const Group = require('./models/Group');
 const Contact = require('./models/Contact');
 const Reminder = require('./models/Reminder');
 
-const API_URL = `http://localhost:${process.env.PORT || 5000}/api`;
+const API_URL = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}/api`;
 
 async function seed() {
   try {
